@@ -28,21 +28,21 @@ namespace WebApiExample
         {
             JObject record = new JObject();
 
-
             string accessToken = await GetAccessToken();
 
             var appSettings = ConfigurationManager.AppSettings;
             string apiUrl = appSettings["apiUrl"];
 
-
             HttpClient client = new HttpClient();
 
+            //Init Batch
             string batchName = $"batch_{Guid.NewGuid()}";
             MultipartContent batchContent = new MultipartContent("mixed", batchName);
 
             string changesetName = $"changeset_{Guid.NewGuid()}";
             MultipartContent changesetContent = new MultipartContent("mixed", changesetName);
 
+            //Create first request - Create new Contact
             record.Add("firstname", "Jane");
             record.Add("lastname", "Doe");
 
@@ -59,6 +59,7 @@ namespace WebApiExample
             
             changesetContent.Add(messageContent);
 
+            //Create second request - Create new Contact
             record = new JObject();
             record.Add("firstname", "John");
             record.Add("lastname", "Doe");
@@ -78,6 +79,7 @@ namespace WebApiExample
 
             batchContent.Add(changesetContent);
 
+            //Create third request - Retrieve contacts
             requestMessage = new HttpRequestMessage(HttpMethod.Get, apiUrl + "contacts?$select=firstname, lastname&$filter=firstname eq 'Jane' or firstname eq 'John'");
 
             messageContent = new HttpMessageContent(requestMessage);
@@ -89,6 +91,7 @@ namespace WebApiExample
 
             batchContent.Add(messageContent);
 
+            //Create batch request
             HttpRequestMessage batchRequest = new HttpRequestMessage(HttpMethod.Post, apiUrl + "$batch");
 
             batchRequest.Content = batchContent;
@@ -98,10 +101,12 @@ namespace WebApiExample
             batchRequest.Headers.Add("Accept", "application/json");
             batchRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 
+            //Execute Batch request
             HttpResponseMessage response = await client.SendAsync(batchRequest);
 
             MultipartMemoryStreamProvider body = await response.Content.ReadAsMultipartAsync();
 
+            //Output result
             Console.WriteLine($"Batch Request Result:\n********************************************************\n {await response.Content.ReadAsStringAsync()}");
 
             return response;
