@@ -15,18 +15,40 @@ namespace WebApiExample
 {
     class BatchRequest
     {
+
         static void Main(string[] args)
         {
             BatchRequest app = new BatchRequest();
 
-            Task.WaitAll(Task.Run(async () => await app.SendBatchRequest()));
+            Task.WaitAll(Task.Run(async () => await app.SendBatchRequest(1)));
+            Task.WaitAll(Task.Run(async () => await app.SendSingleRequests(1)));
 
+
+            Console.WriteLine("numberOfRequests; Batch; Single");
+            int numberOfRequests = 1;
+            while (numberOfRequests <= 500)
+            {
+                Task.WaitAll(Task.Run(async () => await app.SendBatchRequest(numberOfRequests)));
+                Task.WaitAll(Task.Run(async () => await app.SendSingleRequests(numberOfRequests)));
+                if (numberOfRequests < 10)
+                    numberOfRequests++;
+                else if (numberOfRequests < 50)
+                    numberOfRequests = numberOfRequests + 5;
+                else if (numberOfRequests < 100)
+                    numberOfRequests = numberOfRequests + 10;
+                else if (numberOfRequests < 200)
+                    numberOfRequests = numberOfRequests + 20;
+                else
+                    numberOfRequests = numberOfRequests + 50;
+            }
             Console.ReadLine();
         }
 
-        public async Task<HttpResponseMessage> SendBatchRequest()
+        public async Task<HttpResponseMessage> SendBatchRequest(int numberOfRequests)
         {
-            JObject record = new JObject();
+            System.Diagnostics.Stopwatch sw = new System.Diagnostics.Stopwatch();
+            sw.Start();
+
 
             string accessToken = await GetAccessToken();
 
@@ -42,54 +64,32 @@ namespace WebApiExample
             string changesetName = $"changeset_{Guid.NewGuid()}";
             MultipartContent changesetContent = new MultipartContent("mixed", changesetName);
 
-            //Create first request - Create new Contact
-            record.Add("firstname", "Jane");
-            record.Add("lastname", "Doe");
+            HttpRequestMessage requestMessage;
+            HttpMessageContent messageContent;
 
-            HttpRequestMessage requestMessage = new HttpRequestMessage(HttpMethod.Post, apiUrl + "contacts");
-            HttpMessageContent messageContent = new HttpMessageContent(requestMessage);
-            messageContent.Headers.Remove("Content-Type");
-            messageContent.Headers.Add("Content-Type", "application/http");
-            messageContent.Headers.Add("Content-Transfer-Encoding", "binary");
+            for (int i = 0; i < numberOfRequests; i++)
+            {
+                JObject record = new JObject();
 
-            StringContent stringContent = new StringContent(record.ToString());
-            stringContent.Headers.ContentType = MediaTypeHeaderValue.Parse("application/json;type=entry");
-            requestMessage.Content = stringContent;
-            messageContent.Headers.Add("Content-ID", "1");
-            
-            changesetContent.Add(messageContent);
+                //Create first request - Create new Contact
+                record.Add("firstname", "Jane");
+                record.Add("lastname", "Doe");
 
-            //Create second request - Create new Contact
-            record = new JObject();
-            record.Add("firstname", "John");
-            record.Add("lastname", "Doe");
+                requestMessage = new HttpRequestMessage(HttpMethod.Post, apiUrl + "contacts");
+                messageContent = new HttpMessageContent(requestMessage);
+                messageContent.Headers.Remove("Content-Type");
+                messageContent.Headers.Add("Content-Type", "application/http");
+                messageContent.Headers.Add("Content-Transfer-Encoding", "binary");
 
-            requestMessage = new HttpRequestMessage(HttpMethod.Post, apiUrl + "contacts");
-            messageContent = new HttpMessageContent(requestMessage);
-            messageContent.Headers.Remove("Content-Type");
-            messageContent.Headers.Add("Content-Type", "application/http");
-            messageContent.Headers.Add("Content-Transfer-Encoding", "binary");
+                StringContent stringContent = new StringContent(record.ToString());
+                stringContent.Headers.ContentType = MediaTypeHeaderValue.Parse("application/json;type=entry");
+                requestMessage.Content = stringContent;
+                messageContent.Headers.Add("Content-ID", (i + 1).ToString());
 
-            stringContent = new StringContent(record.ToString());
-            stringContent.Headers.ContentType = MediaTypeHeaderValue.Parse("application/json;type=entry");
-            requestMessage.Content = stringContent;
-            messageContent.Headers.Add("Content-ID", "2");
-
-            changesetContent.Add(messageContent);
+                changesetContent.Add(messageContent);
+            }
 
             batchContent.Add(changesetContent);
-
-            //Create third request - Retrieve contacts
-            requestMessage = new HttpRequestMessage(HttpMethod.Get, apiUrl + "contacts?$select=firstname, lastname&$filter=firstname eq 'Jane' or firstname eq 'John'");
-
-            messageContent = new HttpMessageContent(requestMessage);
-            messageContent.Headers.Remove("Content-Type");
-            messageContent.Headers.Add("Content-Type", "application/http");
-            messageContent.Headers.Add("Content-Transfer-Encoding", "binary");
-
-            requestMessage.Headers.Add("Accept", "application/json");
-
-            batchContent.Add(messageContent);
 
             //Create batch request
             HttpRequestMessage batchRequest = new HttpRequestMessage(HttpMethod.Post, apiUrl + "$batch");
@@ -107,7 +107,50 @@ namespace WebApiExample
             MultipartMemoryStreamProvider body = await response.Content.ReadAsMultipartAsync();
 
             //Output result
-            Console.WriteLine($"Batch Request Result:\n********************************************************\n {await response.Content.ReadAsStringAsync()}");
+            //Console.WriteLine($"Batch Request Result:\n********************************************************\n {await response.Content.ReadAsStringAsync()}");
+
+            sw.Stop();
+            //Output result
+            Console.Write($"\n{numberOfRequests}; {sw.ElapsedMilliseconds}");
+            return response;
+        }
+
+        public async Task<HttpResponseMessage> SendSingleRequests(int numberOfRequests)
+        {
+            System.Diagnostics.Stopwatch sw = new System.Diagnostics.Stopwatch();
+            sw.Start();
+
+            string accessToken = await GetAccessToken();
+
+            var appSettings = ConfigurationManager.AppSettings;
+            string apiUrl = appSettings["apiUrl"];
+
+            HttpClient client = new HttpClient();
+            HttpResponseMessage response = null;
+            for (int i = 0; i < numberOfRequests; i++)
+            {
+                JObject record = new JObject();
+
+                //Create first request - Create new Contact
+                record.Add("firstname", "Jane");
+                record.Add("lastname", "Doe");
+
+                HttpRequestMessage requestMessage = new HttpRequestMessage(HttpMethod.Post, apiUrl + "contacts");
+                HttpMessageContent messageContent = new HttpMessageContent(requestMessage);
+                messageContent.Headers.Remove("Content-Type");
+                messageContent.Headers.Add("Content-Type", "application/http");
+                messageContent.Headers.Add("Content-Transfer-Encoding", "binary");
+                StringContent stringContent = new StringContent(record.ToString());
+                stringContent.Headers.ContentType = MediaTypeHeaderValue.Parse("application/json;type=entry");
+                requestMessage.Content = stringContent;
+
+                requestMessage.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+                await client.SendAsync(requestMessage);
+            }
+            sw.Stop();
+            //Output result
+            Console.Write($"; {sw.ElapsedMilliseconds} ms");
 
             return response;
         }
